@@ -7,6 +7,7 @@ import {
     IArduinoGccResult,
     preprocessGccCompilerCommand,
     resolveCppStandard,
+    resolveIntelliSenseMode,
     ResponseFileReader,
 } from "../src/arduino/compilerCommandParser";
 
@@ -149,5 +150,29 @@ suite("Arduino: GCC compiler command parser", () => {
         assert.deepEqual(result.forcedIncludes, [forcedHeader]);
         assert.equal(result.command.includes(`--sysroot=${cwd}`), true);
         assert.equal(result.command.includes("-Wall"), true);
+    });
+
+    test("chooses the IntelliSense mode from the compiler's predefined macros", () => {
+        // Xtensa (ESP32), RISC-V (ESP32-C6) and ARM targets are 32-bit
+        assert.equal(resolveIntelliSenseMode(
+            ["__SIZEOF_POINTER__=4", "__XTENSA__=1", "__GNUC__=14"]),
+            "linux-gcc-arm");
+        assert.equal(resolveIntelliSenseMode(
+            ["__riscv", "__SIZEOF_POINTER__=4"]), "linux-gcc-arm");
+        assert.equal(resolveIntelliSenseMode(
+            ["__arm__", "__SIZEOF_POINTER__=4"]), "linux-gcc-arm");
+        // AVR has 16-bit pointers; "arm" is the closest available mode
+        assert.equal(resolveIntelliSenseMode(
+            ["__AVR__", "__SIZEOF_POINTER__=2"]), "linux-gcc-arm");
+        assert.equal(resolveIntelliSenseMode(
+            ["__i386__", "__SIZEOF_POINTER__=4"]), "linux-gcc-x86");
+        assert.equal(resolveIntelliSenseMode(
+            ["__x86_64__", "__SIZEOF_POINTER__=8"]), "linux-gcc-x64");
+        assert.equal(resolveIntelliSenseMode(
+            ["__aarch64__", "__SIZEOF_POINTER__=8"]), "linux-gcc-arm64");
+        assert.equal(resolveIntelliSenseMode(
+            ["__clang__", "__SIZEOF_POINTER__=4"]), "linux-clang-arm");
+        // Unknown when the compiler could not be queried
+        assert.equal(resolveIntelliSenseMode(["ARDUINO=10607"]), undefined);
     });
 });

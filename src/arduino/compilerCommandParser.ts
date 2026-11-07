@@ -290,3 +290,48 @@ function quoteForShlex(argument: string): string {
     }
     return `"${argument.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
 }
+
+/**
+ * Chooses the IntelliSense mode from the compiler's predefined macros (CoCoPa
+ * collects them by querying the compiler with "-dM -E"). Arduino toolchains
+ * are cross compilers for 32-bit (or smaller) targets such as ARM, Xtensa,
+ * RISC-V and AVR; IntelliSense treats them as 64-bit (wrong sizes of long and
+ * pointers) when the mode is the host default or "gcc-x64".
+ *
+ * IntelliSense has no mode for Xtensa, RISC-V or AVR. "arm" is used for every
+ * target whose pointers are not 8 bytes wide, since it gives the 32-bit type
+ * sizes those targets use (AVR's 16-bit int is not representable at all).
+ *
+ * Returns undefined if the macros do not tell the pointer size (the compiler
+ * could not be queried), so the caller can keep its default.
+ */
+export function resolveIntelliSenseMode(defines: string[]): string | undefined {
+    const macros = new Map<string, string>();
+    for (const define of defines) {
+        const index = define.indexOf("=");
+        if (index === -1) {
+            macros.set(define, "1");
+        } else {
+            macros.set(define.slice(0, index), define.slice(index + 1));
+        }
+    }
+
+    const pointerSize = macros.get("__SIZEOF_POINTER__");
+    if (!pointerSize) {
+        return undefined;
+    }
+
+    const compiler = macros.has("__clang__") ? "clang" : "gcc";
+    let architecture: string;
+    if (pointerSize === "8") {
+        architecture = macros.has("__aarch64__") ? "arm64" : "x64";
+    } else if (macros.has("__i386__")) {
+        architecture = "x86";
+    } else {
+        architecture = "arm";
+    }
+
+    // Toolchains for bare-metal targets are GCC (or Clang) with a Unix-like
+    // ABI regardless of the host, so use the Linux variant of the mode.
+    return `linux-${compiler}-${architecture}`;
+}

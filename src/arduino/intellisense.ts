@@ -12,6 +12,7 @@ import { DeviceContext } from "../deviceContext";
 import {
     ArduinoGccParser,
     IArduinoGccResult,
+    resolveIntelliSenseMode,
 } from "./compilerCommandParser";
 import { VscodeSettings } from "./vscodeSettings";
 
@@ -147,6 +148,13 @@ export function makeCompilerParserContext(dc: DeviceContext): ICoCoPaContext {
                                                                 : undefined);
         if (result.effectiveCppStandard) {
             content.configurations[0].cppStandard = result.effectiveCppStandard;
+        }
+        // Match the IntelliSense mode to the target (e.g. 32-bit for ESP32),
+        // falling back to the default above if the compiler was not queried.
+        const intelliSenseMode = resolveIntelliSenseMode(result.defines);
+        if (intelliSenseMode) {
+            content.configurations[0].intelliSenseMode =
+                intelliSenseMode as ccp.CCppPropertiesISMode;
         }
 
         try {
