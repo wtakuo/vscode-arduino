@@ -572,10 +572,17 @@ export class ArduinoApp {
 
         if (!dc.sketch || !util.fileExistsSync(path.join(ArduinoWorkspace.rootPath, dc.sketch))) {
             if (buildMode === BuildMode.Analyze) {
-                // Analyze runs non interactively
-                return false;
-            }
-            if (!await dc.resolveMainSketch()) {
+                // Analyze runs non interactively, so only accept the main
+                // sketch that the Arduino sketch layout implies: the .ino
+                // file named after the sketch folder. Without this, projects
+                // whose arduino.json has no "sketch" never get an
+                // IntelliSense configuration until the user runs Verify.
+                const mainSketch = `${path.basename(ArduinoWorkspace.rootPath)}.ino`;
+                if (!util.fileExistsSync(path.join(ArduinoWorkspace.rootPath, mainSketch))) {
+                    return false;
+                }
+                dc.sketch = mainSketch;
+            } else if (!await dc.resolveMainSketch()) {
                 vscode.window.showErrorMessage("No sketch file was found. Please specify the sketch in the arduino.json file");
                 return false;
             }
