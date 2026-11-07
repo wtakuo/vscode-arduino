@@ -335,3 +335,57 @@ export function resolveIntelliSenseMode(defines: string[]): string | undefined {
     // ABI regardless of the host, so use the Linux variant of the mode.
     return `linux-${compiler}-${architecture}`;
 }
+
+/**
+ * Arduino CLI caches build results (in the user's cache directory when no
+ * output path is set) and then prints "Using previously compiled file:
+ * .../sketch/<sketch>.cpp.o" instead of the compile command, so there is
+ * nothing for the parser to match. Returns the build directory from such a
+ * line for the main sketch, or undefined for any other line.
+ */
+export function cachedSketchBuildDir(line: string, sketch: string): string | undefined {
+    const prefix = "Using previously compiled file:";
+    const index = line.indexOf(prefix);
+    if (index === -1) {
+        return undefined;
+    }
+    const objectFile = line.slice(index + prefix.length).trim();
+    const sketchDir = path.dirname(objectFile);
+    if (path.basename(objectFile) !== `${sketch}.cpp.o` ||
+        path.basename(sketchDir) !== "sketch") {
+        return undefined;
+    }
+    return path.dirname(sketchDir);
+}
+
+/**
+ * Rebuilds the main sketch's compile command line from the compilation
+ * database (compile_commands.json) that Arduino CLI writes into every build
+ * directory. The result is quoted so that splitGccArguments() gives back the
+ * original arguments. Returns undefined if the sketch is not in the database.
+ */
+export function sketchCommandFromCompilationDatabase(
+    database: string,
+    sketch: string,
+): string | undefined {
+    let entries: any;
+    try {
+        entries = JSON.parse(database);
+    } catch (error) {
+        return undefined;
+    }
+    if (!Array.isArray(entries)) {
+        return undefined;
+    }
+    const entry = entries.find((e) =>
+        e && typeof e.file === "string" &&
+        path.basename(e.file) === `${sketch}.cpp` &&
+        Array.isArray(e.arguments));
+    if (!entry) {
+        return undefined;
+    }
+    return entry.arguments.map((argument: string) =>
+        /[\s"'\\]/.test(argument)
+            ? `"${argument.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`
+            : argument).join(" ");
+}

@@ -4,11 +4,13 @@ import * as path from "path";
 
 import {
     ArduinoGccParser,
+    cachedSketchBuildDir,
     IArduinoGccResult,
     preprocessGccCompilerCommand,
     resolveCppStandard,
     resolveIntelliSenseMode,
     ResponseFileReader,
+    sketchCommandFromCompilationDatabase,
 } from "../src/arduino/compilerCommandParser";
 
 suite("Arduino: GCC compiler command parser", () => {
@@ -174,5 +176,57 @@ suite("Arduino: GCC compiler command parser", () => {
             ["__clang__", "__SIZEOF_POINTER__=4"]), "linux-clang-arm");
         // Unknown when the compiler could not be queried
         assert.equal(resolveIntelliSenseMode(["ARDUINO=10607"]), undefined);
+    });
+
+    test("finds the build directory when the sketch object file is reused", () => {
+        const buildDir = path.join(path.sep, "cache", "sketches", "ABC 123");
+        const object = path.join(buildDir, "sketch", "Blink.ino.cpp.o");
+        assert.equal(cachedSketchBuildDir(
+            `Using previously compiled file: ${object}\n`, "Blink.ino"), buildDir);
+        // Other sketches, libraries and core files are ignored
+        assert.equal(cachedSketchBuildDir(
+            `Using previously compiled file: ${object}`, "Other.ino"), undefined);
+        assert.equal(cachedSketchBuildDir(
+            `Using previously compiled file: ${path.join(buildDir, "libraries",
+                "Blink.ino.cpp.o")}`, "Blink.ino"), undefined);
+        assert.equal(cachedSketchBuildDir("Compiling sketch...", "Blink.ino"), undefined);
+    });
+
+    test("rebuilds the sketch command from the compilation database", () => {
+        const cwd = path.resolve("test", "resources", "compiler-command");
+        const sketchFile = path.join(cwd, "build", "sketch", "Blink.ino.cpp");
+        const includeDir = path.join(cwd, "Include With Spaces");
+        const database = JSON.stringify([
+            {
+                arguments: ["xtensa-esp32-elf-g++", "-c", "core.cpp", "-o", "core.cpp.o"],
+                directory: cwd,
+                file: path.join(cwd, "core.cpp"),
+            },
+            {
+                arguments: [
+                    "xtensa-esp32-elf-g++", "-MMD", "-c", "-std=gnu++2b",
+                    "-DARDUINO_BOARD=\"ESP32_DEV\"", `-I${includeDir}`,
+                    sketchFile, "-o", `${sketchFile}.o`,
+                ],
+                directory: cwd,
+                file: sketchFile,
+            },
+        ]);
+
+        const command = sketchCommandFromCompilationDatabase(database, "Blink.ino");
+        assert.notEqual(command, undefined);
+
+        // The command must match the parser's trigger and parse as usual
+        const runner = new ccp.Runner([new ArduinoGccParser(
+            ccp.getTriggerForArduinoGcc("Blink.ino"), cwd)]);
+        runner.callback()(command);
+        const result = runner.result as IArduinoGccResult;
+        assert.notEqual(result, undefined);
+        assert.deepEqual(result.includes.filter((p) => p === includeDir), [includeDir]);
+        assert.equal(result.defines.indexOf("ARDUINO_BOARD=\"ESP32_DEV\"") !== -1, true);
+        assert.equal(result.effectiveCppStandard, "gnu++23");
+
+        assert.equal(sketchCommandFromCompilationDatabase(database, "Other.ino"), undefined);
+        assert.equal(sketchCommandFromCompilationDatabase("not json", "Blink.ino"), undefined);
     });
 });
