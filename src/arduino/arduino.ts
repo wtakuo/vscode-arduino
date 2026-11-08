@@ -21,6 +21,7 @@ import { AnalysisManager,
          makeCompilerParserContext,
          normalizeCompilerLine } from "./intellisense";
 import { LibraryManager } from "./libraryManager";
+import { defaultSketchProfile } from "./sketchProfile";
 import { VscodeSettings } from "./vscodeSettings";
 
 import { arduinoChannel } from "../common/outputChannel";
@@ -588,6 +589,19 @@ export class ArduinoApp {
             }
         }
 
+        // With a default_profile in sketch.yaml, Arduino CLI resolves the
+        // board only among the profile's platforms, so passing the board
+        // selected here (which comes from the globally installed platforms)
+        // fails with "platform not installed" unless they happen to match.
+        // Let the profile choose the board, as a plain "arduino-cli compile"
+        // in the sketch folder would.
+        const sketchProfile = this.useArduinoCli() ?
+            defaultSketchProfile(path.dirname(path.join(ArduinoWorkspace.rootPath, dc.sketch))) :
+            undefined;
+        if (sketchProfile) {
+            args.splice(args.indexOf("-b"), 2);
+        }
+
         const selectSerial = async () => {
             const choice = await vscode.window.showInformationMessage(
                 "Serial port is not specified. Do you want to select a serial port for uploading?",
@@ -709,6 +723,10 @@ export class ArduinoApp {
             arduinoChannel.clear();
         }
         arduinoChannel.start(`${buildMode} sketch '${dc.sketch}'`);
+        if (sketchProfile) {
+            arduinoChannel.info(`Using the default profile '${sketchProfile}' of sketch.yaml ` +
+                `instead of the selected board '${boardDescriptor}'.`);
+        }
 
         if (buildDir || dc.output) {
             // 2020-02-29, EW: This whole code appears a bit wonky to me.
